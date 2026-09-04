@@ -89,7 +89,7 @@ setup() {
 
   if podman container exists "$CONTAINER_NAME" 2>/dev/null; then
     local state
-    state="$(podman inspect --format '{{.State.Status}}' "$CONTAINER_NAME" 2>/dev/null || echo "unknown")"
+    state="$(podman container inspect --format '{{.State.Status}}' "$CONTAINER_NAME" 2>/dev/null || echo "unknown")"
     if [[ "$state" == "running" ]]; then
       info "SearXNG is already running at ${BASE_URL}"
       return 0
@@ -103,10 +103,6 @@ setup() {
   info "Creating volume ${VOLUME_NAME}..."
   podman volume create "$VOLUME_NAME" 2>/dev/null || true
 
-  local tmpdir
-  tmpdir="$(mktemp -d)"
-  create_settings "${tmpdir}/settings.yml"
-
   info "Pulling ${IMAGE}..."
   podman pull "$IMAGE"
 
@@ -114,9 +110,19 @@ setup() {
   # Works on both macOS (volume inside VM) and Linux.
   local seed_cid
   seed_cid="$(podman create --name searxng-seed -v "${VOLUME_NAME}:/etc/searxng" "$IMAGE" true)"
-  podman cp "${tmpdir}/settings.yml" "${seed_cid}:/etc/searxng/settings.yml"
-  podman rm "$seed_cid" >/dev/null
+
+  # Only write settings if the volume doesn't already have them.
+  local tmpdir
+  tmpdir="$(mktemp -d)"
+  if podman cp "${seed_cid}:/etc/searxng/settings.yml" "${tmpdir}/existing.yml" 2>/dev/null; then
+    info "Using existing settings from volume."
+  else
+    create_settings "${tmpdir}/settings.yml"
+    podman cp "${tmpdir}/settings.yml" "${seed_cid}:/etc/searxng/settings.yml"
+  fi
   rm -rf "$tmpdir"
+
+  podman rm "$seed_cid" >/dev/null
 
   info "Starting SearXNG..."
   podman run -d \
@@ -152,11 +158,11 @@ teardown() {
 
 status() {
   if podman container exists "$CONTAINER_NAME" 2>/dev/null; then
-    podman inspect --format 'Name:    {{.Name}}
-Image:   {{.ImageName}}
-Status:  {{.State.Status}}
-Started: {{.State.StartedAt}}
-Port:    {{range .HostConfig.PortBindings}}{{range .}}{{.HostPort}}{{end}}{{end}}' "$CONTAINER_NAME"
+    echo "Name:    $(podman container inspect --format '{{.Name}}' "$CONTAINER_NAME")"
+    echo "Image:   $(podman container inspect --format '{{.ImageName}}' "$CONTAINER_NAME")"
+    echo "Status:  $(podman container inspect --format '{{.State.Status}}' "$CONTAINER_NAME")"
+    echo "Started: $(podman container inspect --format '{{.State.StartedAt}}' "$CONTAINER_NAME")"
+    echo "Port:    $(podman port "$CONTAINER_NAME" 2>/dev/null | head -1 || echo "none")"
   else
     info "No SearXNG container found."
   fi
@@ -169,10 +175,10 @@ update() {
 
   info "Pulling latest ${IMAGE}..."
   local old_id
-  old_id="$(podman inspect --format '{{.Image}}' "$CONTAINER_NAME" 2>/dev/null)"
+  old_id="$(podman container inspect --format '{{.Image}}' "$CONTAINER_NAME" 2>/dev/null)"
   podman pull "$IMAGE"
   local new_id
-  new_id="$(podman inspect --format '{{.Id}}' "$IMAGE" 2>/dev/null)"
+  new_id="$(podman image inspect --format '{{.Id}}' "$IMAGE" 2>/dev/null)"
 
   if [[ "$old_id" == "$new_id" ]]; then
     info "Already running the latest image."
