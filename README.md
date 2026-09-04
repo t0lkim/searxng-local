@@ -44,15 +44,19 @@ SearXNG is now running at [http://localhost:8080](http://localhost:8080).
 ```bash
 ./setup.sh              # Create and start (or start if already created)
 ./setup.sh stop          # Stop the container
+./setup.sh update        # Pull latest image and recreate (preserves settings)
+./setup.sh logs          # Show container logs
 ./setup.sh status        # Show container status
 ./setup.sh teardown      # Remove container (preserves settings volume)
+./setup.sh reset         # Remove container AND settings (destructive)
 ./setup.sh help          # Show all commands
 ```
 
-### Custom port
+### Custom port or bind address
 
 ```bash
 SEARXNG_PORT=9090 ./setup.sh
+SEARXNG_BIND=0.0.0.0 ./setup.sh   # Expose to the network (default: 127.0.0.1)
 ```
 
 ## What it does
@@ -151,12 +155,25 @@ systemctl --user daemon-reload
 systemctl --user enable --now searxng.service
 ```
 
+## Updating
+
+```bash
+./setup.sh update
+```
+
+Pulls the latest SearXNG image. If it's newer than what's running, the container is recreated with the new image. Settings are preserved in the volume.
+
 ## Uninstall
 
 ```bash
-./setup.sh teardown                  # Remove container
-podman volume rm searxng-data        # Remove settings
+./setup.sh reset                     # Remove container + settings (interactive)
 podman rmi docker.io/searxng/searxng # Remove image
+```
+
+Or to keep your settings for later:
+
+```bash
+./setup.sh teardown                  # Remove container only
 ```
 
 ## Licence

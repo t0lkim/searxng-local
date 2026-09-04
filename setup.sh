@@ -8,11 +8,29 @@ CONTAINER_NAME="searxng"
 VOLUME_NAME="searxng-data"
 IMAGE="docker.io/searxng/searxng:latest"
 PORT="${SEARXNG_PORT:-8080}"
-BASE_URL="http://localhost:${PORT}/"
+BIND="${SEARXNG_BIND:-127.0.0.1}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+BASE_URL="http://localhost:${PORT}/"
 
-info()  { printf '\033[1;34m==>\033[0m %s\n' "$*"; }
-error() { printf '\033[1;31merror:\033[0m %s\n' "$*" >&2; exit 1; }
+info() {
+  printf '\033[1;34m==>\033[0m %s\n' "$*"
+}
+
+warn() {
+  printf '\033[1;33mwarn:\033[0m %s\n' "$*" >&2
+}
+
+error() {
+  printf '\033[1;31merror:\033[0m %s\n' "$*" >&2
+  exit 1
+}
+
+validate_port() {
+  [[ "$PORT" =~ ^[0-9]+$ ]] || error "SEARXNG_PORT must be a number, got: '${PORT}'"
+  if (( PORT < 1 || PORT > 65535 )); then
+    error "SEARXNG_PORT must be between 1 and 65535, got: ${PORT}"
+  fi
+}
 
 check_podman() {
   command -v podman >/dev/null 2>&1 || error "podman not found. Install it first:
@@ -24,7 +42,7 @@ check_podman_running() {
   if [[ "$(uname)" == "Darwin" ]]; then
     if ! podman machine info --format '{{.Host.MachineState}}' 2>/dev/null | grep -qi running; then
       info "Starting Podman machine..."
-      podman machine start 2>/dev/null || error "Failed to start Podman machine. Run: podman machine init && podman machine start"
+      podman machine start || error "Failed to start Podman machine. Run: podman machine init && podman machine start"
     fi
   fi
 }
@@ -65,6 +83,7 @@ EOF
 }
 
 setup() {
+  validate_port
   check_podman
   check_podman_running
 
@@ -73,43 +92,37 @@ setup() {
     state="$(podman inspect --format '{{.State.Status}}' "$CONTAINER_NAME" 2>/dev/null || echo "unknown")"
     if [[ "$state" == "running" ]]; then
       info "SearXNG is already running at ${BASE_URL}"
-      exit 0
+      return 0
     fi
     info "Starting existing container..."
     podman start "$CONTAINER_NAME"
     info "SearXNG running at ${BASE_URL}"
-    exit 0
+    return 0
   fi
 
   info "Creating volume ${VOLUME_NAME}..."
   podman volume create "$VOLUME_NAME" 2>/dev/null || true
 
-  local mount_path
-  mount_path="$(podman volume inspect "$VOLUME_NAME" --format '{{.Mountpoint}}')"
-
-  local settings_target="${mount_path}/settings.yml"
-
-  if [[ "$(uname)" == "Darwin" ]]; then
-    # On macOS, the volume lives inside the Podman VM.
-    # Copy settings via a temporary container.
-    local tmpdir
-    tmpdir="$(mktemp -d)"
-    create_settings "${tmpdir}/settings.yml"
-    podman run --rm -v "$VOLUME_NAME:/data" -v "${tmpdir}:/src:ro" alpine sh -c \
-      '[ -f /data/settings.yml ] || cp /src/settings.yml /data/settings.yml'
-    rm -rf "$tmpdir"
-  else
-    create_settings "$settings_target"
-  fi
+  local tmpdir
+  tmpdir="$(mktemp -d)"
+  create_settings "${tmpdir}/settings.yml"
 
   info "Pulling ${IMAGE}..."
   podman pull "$IMAGE"
+
+  # Seed settings into the volume via a temporary container.
+  # Works on both macOS (volume inside VM) and Linux.
+  local seed_cid
+  seed_cid="$(podman create --name searxng-seed -v "${VOLUME_NAME}:/etc/searxng" "$IMAGE" true)"
+  podman cp "${tmpdir}/settings.yml" "${seed_cid}:/etc/searxng/settings.yml"
+  podman rm "$seed_cid" >/dev/null
+  rm -rf "$tmpdir"
 
   info "Starting SearXNG..."
   podman run -d \
     --name "$CONTAINER_NAME" \
     --restart always \
-    -p "${PORT}:8080" \
+    -p "${BIND}:${PORT}:8080" \
     -v "${VOLUME_NAME}:/etc/searxng" \
     -e "SEARXNG_BASE_URL=${BASE_URL}" \
     "$IMAGE"
@@ -149,6 +162,65 @@ Port:    {{range .HostConfig.PortBindings}}{{range .}}{{.HostPort}}{{end}}{{end}
   fi
 }
 
+update() {
+  if ! podman container exists "$CONTAINER_NAME" 2>/dev/null; then
+    error "No SearXNG container found. Run './setup.sh' first."
+  fi
+
+  info "Pulling latest ${IMAGE}..."
+  local old_id
+  old_id="$(podman inspect --format '{{.Image}}' "$CONTAINER_NAME" 2>/dev/null)"
+  podman pull "$IMAGE"
+  local new_id
+  new_id="$(podman inspect --format '{{.Id}}' "$IMAGE" 2>/dev/null)"
+
+  if [[ "$old_id" == "$new_id" ]]; then
+    info "Already running the latest image."
+    return 0
+  fi
+
+  info "New image available. Recreating container..."
+  podman stop "$CONTAINER_NAME" 2>/dev/null || true
+  podman rm "$CONTAINER_NAME"
+
+  podman run -d \
+    --name "$CONTAINER_NAME" \
+    --restart always \
+    -p "${BIND}:${PORT}:8080" \
+    -v "${VOLUME_NAME}:/etc/searxng" \
+    -e "SEARXNG_BASE_URL=${BASE_URL}" \
+    "$IMAGE"
+
+  info "SearXNG updated and running at ${BASE_URL}"
+}
+
+logs() {
+  if podman container exists "$CONTAINER_NAME" 2>/dev/null; then
+    podman logs "${@:---tail=50}" "$CONTAINER_NAME"
+  else
+    error "No SearXNG container found."
+  fi
+}
+
+reset() {
+  warn "This will destroy the container AND all settings."
+  printf "Continue? [y/N] "
+  read -r confirm
+  if [[ "$confirm" != [yY] ]]; then
+    info "Aborted."
+    return 0
+  fi
+
+  stop 2>/dev/null || true
+  if podman container exists "$CONTAINER_NAME" 2>/dev/null; then
+    podman rm "$CONTAINER_NAME"
+  fi
+  if podman volume exists "$VOLUME_NAME" 2>/dev/null; then
+    podman volume rm "$VOLUME_NAME"
+  fi
+  info "Removed container and volume. Run './setup.sh' to start fresh."
+}
+
 usage() {
   cat <<EOF
 Usage: $(basename "$0") [command]
@@ -157,12 +229,16 @@ Commands:
   setup     Create and start SearXNG (default)
   start     Start an existing container
   stop      Stop the container
-  teardown  Remove the container (preserves volume)
+  update    Pull latest image and recreate container (preserves settings)
+  logs      Show container logs (pass podman logs flags after)
   status    Show container status
+  teardown  Remove the container (preserves settings volume)
+  reset     Remove container AND settings volume (destructive)
   help      Show this message
 
 Environment:
   SEARXNG_PORT  Port to bind (default: 8080)
+  SEARXNG_BIND  Address to bind (default: 127.0.0.1)
 EOF
 }
 
@@ -170,7 +246,10 @@ case "${1:-setup}" in
   setup)    setup ;;
   start)    setup ;;
   stop)     stop ;;
+  update)   update ;;
+  logs)     shift; logs "$@" ;;
   teardown) teardown ;;
+  reset)    reset ;;
   status)   status ;;
   help|-h|--help) usage ;;
   *) error "Unknown command: $1. Run '$(basename "$0") help' for usage." ;;
