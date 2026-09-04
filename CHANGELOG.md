@@ -2,7 +2,7 @@
 
 ## [0.2.0] — 2026-09-04
 
-Red team hardening and new commands.
+Red team hardening, new commands, and test-driven fixes.
 
 - **Security:** bind to `127.0.0.1` by default instead of `0.0.0.0` (configurable via `SEARXNG_BIND`)
 - **Security:** replace alpine sidecar with `podman cp` for settings seeding (removes unpinned alpine dependency)
@@ -11,6 +11,8 @@ Red team hardening and new commands.
 - Add `logs` command: show container logs (pass podman logs flags through)
 - Add `reset` command: interactive destructive removal of container and volume
 - Add port validation: `SEARXNG_PORT` must be numeric 1-65535
+- Fix settings preservation: check volume for existing settings before seeding
+- Fix `status` command: use `podman port` and per-field inspect calls
 - Replace `exit 0` with `return 0` inside functions (safe to source)
 - Add `warn()` helper
 
