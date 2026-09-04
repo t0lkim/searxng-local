@@ -1,5 +1,11 @@
 # Changelog
 
+## [Unreleased]
+
+### Changed
+
+- Align comment spacing in README usage table
+
 ## [0.2.0] — 2026-09-04
 
 Red team hardening, new commands, and test-driven fixes.
