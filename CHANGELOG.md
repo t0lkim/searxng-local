@@ -4,7 +4,7 @@
 
 ### Changed
 
-- Align comment spacing in README usage table
+- Tighten README tagline; align comment spacing in usage table
 
 ## [0.2.0] — 2026-09-04
 

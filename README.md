@@ -1,6 +1,6 @@
 # searxng-local
 
-Run [SearXNG](https://searxng.org) locally in a Podman container with persistent configuration. One script, no Docker, no compose files.
+Run [SearXNG](https://searxng.org) locally in a Podman container with persistent configuration.
 
 SearXNG is a privacy-respecting metasearch engine that aggregates results from 70+ search engines without tracking you.
 
