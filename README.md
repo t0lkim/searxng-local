@@ -42,7 +42,7 @@ SearXNG is now running at [http://localhost:8080](http://localhost:8080).
 ## Usage
 
 ```bash
-./setup.sh              # Create and start (or start if already created)
+./setup.sh               # Create and start (or start if already created)
 ./setup.sh stop          # Stop the container
 ./setup.sh update        # Pull latest image and recreate (preserves settings)
 ./setup.sh logs          # Show container logs
