@@ -1,0 +1,27 @@
+# SearXNG settings
+# https://docs.searxng.org/admin/settings/
+#
+# This file is copied into the container volume on first run.
+# The secret_key is replaced automatically by setup.sh.
+# To customise further, edit the copy inside the volume:
+#   podman exec searxng cat /etc/searxng/settings.yml
+
+use_default_settings: true
+
+server:
+  secret_key: "GENERATED_AT_SETUP"
+  image_proxy: true
+
+# Uncomment to restrict search engines:
+# engines:
+#   - name: google
+#     disabled: false
+#   - name: duckduckgo
+#     disabled: false
+#   - name: brave
+#     disabled: false
+
+# Uncomment to change the UI:
+# ui:
+#   default_theme: simple
+#   default_locale: en
